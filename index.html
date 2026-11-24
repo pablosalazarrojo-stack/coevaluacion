@@ -237,6 +237,8 @@ td.top1{color:var(--basil);font-weight:700}
       <p class="leg" id="pLeg"></p>
       <p class="hint" id="pAct"></p>
       <div id="pAl" style="display:flex;flex-direction:column;gap:8px"></div>
+      <button class="save ink" id="bCsv">Exportar CSV</button>
+      <p class="hint">Una fila por alumno: nombre, matrícula, equipo y la calificación de su equipo (promedio de las evaluaciones enviadas, 0 a 100).</p>
       <button class="danger" id="bReset">Borrar todas las respuestas</button>
       <p class="hint">Deja la hoja en cero y cada alumno empieza de nuevo. No se puede deshacer.</p>
     </div>
@@ -532,8 +534,25 @@ td.top1{color:var(--basil);font-weight:700}
       .catch(function(e){ toast("No se pudo: "+e.message); })
       .then(function(){ b.disabled=false; b.classList.remove("arm"); b.textContent="Borrar todas las respuestas"; });
   });
+  var ultimo=null;
+  function celda(v){ v=String(v==null?"":v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }
+  $("bCsv").addEventListener("click",function(){
+    var b=$("bCsv"); b.disabled=true; b.textContent="Preparando…";
+    cargaProfe().then(function(){
+      var o=ultimo, cal={};
+      o.equipos.forEach(function(e){ cal[e.nombre]=e.prom?Math.round(e.prom.reduce(function(s,x){return s+x;},0)/e.prom.length*10)/10:""; });
+      var filas=[["nombre","matricula","equipo","calificacion"]].concat(o.alumnos.map(function(a){ return [a.nombre,a.matricula,a.equipo,cal[a.equipo]]; }));
+      var csv="\ufeff"+filas.map(function(f){ return f.map(celda).join(","); }).join("\r\n");
+      var url=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));
+      var a=document.createElement("a"); a.href=url; a.download="coevaluacion-proyecto-n-"+new Date().toISOString().slice(0,10)+".csv";
+      document.body.appendChild(a); a.click(); a.remove(); setTimeout(function(){ URL.revokeObjectURL(url); },2000);
+      toast("CSV descargado");
+    }).catch(function(e){ toast("No se pudo: "+e.message); })
+      .then(function(){ b.disabled=false; b.textContent="Exportar CSV"; });
+  });
   function cargaProfe(){
     return api("profe",{pass:pass}).then(function(o){
+      ultimo=o;
       var env=0,cur=0,no=0;
       o.alumnos.forEach(function(a){ if(a.estado==="enviado") env++; else if(a.estado==="en curso") cur++; else no++; });
       $("kEnv").textContent=env; $("kCur").textContent=cur; $("kNo").textContent=no;

@@ -246,7 +246,7 @@ function tablero() {
     }),
     alumnos: al.map(function (x) {
       const s = est[x.m] || { k: 0, env: false };
-      return { nombre: x.n, equipo: x.e, estado: s.env ? "enviado" : (s.k ? "en curso" : "sin empezar"), k: s.env ? EQUIPOS.length - 1 : s.k };
+      return { nombre: x.n, matricula: x.m, equipo: x.e, estado: s.env ? "enviado" : (s.k ? "en curso" : "sin empezar"), k: s.env ? EQUIPOS.length - 1 : s.k };
     })
   };
 }
