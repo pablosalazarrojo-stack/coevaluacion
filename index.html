@@ -243,7 +243,7 @@ td.top1{color:var(--basil);font-weight:700}
 <script>
 (function(){
   "use strict";
-  var CONFIG={ API:"" };
+  var CONFIG={ API:"https://script.google.com/macros/s/AKfycbykveKrhlO7cSjPxmWM8NMrtLTdey2zfpDPHjszmbReJ7dLZ7CCS3ss7BAvuztK9PzKXQ/exec" };
   var EQUIPOS=["Fashion B","Bags Pro","Prime Bags","Superbag","Mon Sac a Dos","Saga Sacs","Urban Sacs"];
   var PREG=[
     "Aplicaron conocimientos para resolver los retos de su empresa.",
@@ -473,7 +473,15 @@ td.top1{color:var(--basil);font-weight:700}
     armado=false;
     var b=$("bEnviar"); b.disabled=true; b.textContent="Enviando…"; $("eEnviar").textContent="";
     var ev={}; otros().forEach(function(x){ ev[x]=S.evals[x].d; });
-    api("submit",{matricula:S.m,evals:ev}).then(function(){
+    var intentos=0;
+    function manda(){
+      return api("submit",{matricula:S.m,evals:ev}).catch(function(e){
+        if(++intentos>=4||/matrícula|Faltan|rango/.test(e.message)) throw e;
+        b.textContent="Mucha gente enviando… reintento "+intentos;
+        return new Promise(function(r){ setTimeout(r,2500+Math.random()*2500); }).then(manda);
+      });
+    }
+    manda().then(function(){
       S.enviado=true; S.pend=[]; guardaLocal(); pintaListo();
     }).catch(function(e){
       $("eEnviar").textContent="No se pudo enviar ("+e.message+"). Revisa tu internet e intenta otra vez.";

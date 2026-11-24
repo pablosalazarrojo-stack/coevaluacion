@@ -129,7 +129,7 @@ function pila(nombre) { // "Amaya Pineda, María Fernanda" → "María Fernanda"
 function filas() {
   const sh = libro().getSheetByName("Evaluaciones");
   if (sh.getLastRow() < 2) return [];
-  return sh.getRange(2, 1, sh.getLastRow() - 1, COLS.length).getValues();
+  return sh.getRange(2, 1, sh.getLastRow() - 1, COLS.length).getValues().filter(function (r) { return r[0]; });
 }
 
 function deAlumno(m, rows) {
@@ -171,7 +171,7 @@ function guardar(d, final) {
     evals[d.equipo] = dims(d.d);
   }
   const lock = LockService.getScriptLock();
-  lock.waitLock(25000);
+  lock.waitLock(30000);
   try {
     const sh = libro().getSheetByName("Evaluaciones");
     const rows = filas();
