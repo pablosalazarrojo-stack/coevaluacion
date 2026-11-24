@@ -148,6 +148,8 @@ td.top1{color:var(--basil);font-weight:700}
 .al .dot.en{background:var(--basil)}.al .dot.cu{background:var(--lemon)}
 .al .s{margin-left:auto;font-size:13px;color:var(--muted);white-space:nowrap}
 .leg{font-size:13px;color:var(--muted);display:flex;flex-wrap:wrap;gap:4px 12px}
+.danger{width:100%;border:2px solid var(--tomato);background:transparent;color:var(--tomato);border-radius:20px;font-size:17px;font-weight:600;padding:14px;margin-top:10px}
+.danger.arm{background:var(--tomato);color:#FFF4EE}
 .toast{position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 14px);transform:translateX(-50%);background:var(--fg);color:var(--bg);border-radius:999px;padding:10px 18px;font-size:15px;font-weight:600;z-index:50;box-shadow:0 8px 24px rgba(0,0,0,.25);white-space:nowrap;max-width:calc(100vw - 32px);overflow:hidden;text-overflow:ellipsis}
 </style>
 </head>
@@ -235,6 +237,8 @@ td.top1{color:var(--basil);font-weight:700}
       <p class="leg" id="pLeg"></p>
       <p class="hint" id="pAct"></p>
       <div id="pAl" style="display:flex;flex-direction:column;gap:8px"></div>
+      <button class="danger" id="bReset">Borrar todas las respuestas</button>
+      <p class="hint">Deja la hoja en cero y cada alumno empieza de nuevo. No se puede deshacer.</p>
     </div>
   </section>
 </div>
@@ -251,9 +255,10 @@ td.top1{color:var(--basil);font-weight:700}
     "Crearon una historia y una narrativa interesante para presentar.",
     "Sus apoyos visuales y la presentación funcionan bien.",
     "El equipo se ve organizado, presenta de manera correcta y hay buena interacción.",
+    "Contestaron bien las preguntas.",
     "Este equipo es un fiel representante del esfuerzo de todos nosotros en este grupo."
   ];
-  var CORTO=["Conocimientos","Decisiones","Narrativa","Visuales","Organización","Nos representa"];
+  var CORTO=["Conocimientos","Decisiones","Narrativa","Visuales","Organización","Respuestas","Nos representa"];
   var ORD=["1.º","2.º","3.º","4.º","5.º","6.º","7.º"];
 
   function $(id){ return document.getElementById(id); }
@@ -323,7 +328,8 @@ td.top1{color:var(--basil);font-weight:700}
 
   function aplicaServidor(o){
     var loc=leeLocal(o.matricula);
-    S={m:o.matricula,nombre:o.nombre,equipo:o.equipo,evals:o.evals||{},pend:[],enviado:!!o.enviado};
+    if(loc&&loc.ronda!==o.ronda) loc=null; // el profe reinició: lo guardado en el teléfono ya no cuenta
+    S={m:o.matricula,nombre:o.nombre,equipo:o.equipo,evals:o.evals||{},pend:[],enviado:!!o.enviado,ronda:o.ronda};
     if(loc&&!S.enviado&&loc.evals){
       for(var eq in loc.evals){
         var l=loc.evals[eq], s=S.evals[eq];
@@ -333,6 +339,12 @@ td.top1{color:var(--basil);font-weight:700}
     }
     guardaLocal();
     if(S.enviado) pintaListo(); else { pintaMenu(); flush(); }
+  }
+
+  function reinicio(){
+    try{ localStorage.removeItem(key(S.m)); localStorage.removeItem("coev:yo"); }catch(e){}
+    var m=S.m; S=null; actual=null; $("mat").value=m; ver("vLogin");
+    $("eLogin").textContent="El profe reinició la evaluación. Toca Entrar para empezar de nuevo.";
   }
 
   $("salir").addEventListener("click",function(){
@@ -387,8 +399,8 @@ td.top1{color:var(--basil);font-weight:700}
   function abreEval(eq){
     actual=eq; avisado=false;
     var e=S.evals[eq];
-    vals=e?e.d.slice():[0,0,0,0,0,0];
-    tocado=PREG.map(function(){ return !!e; });
+    vals=e&&e.d.length===PREG.length?e.d.slice():PREG.map(function(){ return 0; });
+    tocado=PREG.map(function(_,i){ return !!(e&&e.d.length===PREG.length); });
     $("evNm").textContent=eq;
     $("evOrd").textContent="Presenta en "+ORD[EQUIPOS.indexOf(eq)]+" lugar";
     $("eEval").textContent="";
@@ -399,7 +411,7 @@ td.top1{color:var(--basil);font-weight:700}
          '<div class="ends"><span>0</span><span class="tag" id="t'+i+'"></span><span>100</span></div></div>';
     });
     $("qs").innerHTML=h;
-    for(var i=0;i<6;i++) pintaSlider(i);
+    for(var i=0;i<PREG.length;i++) pintaSlider(i);
     ver("vEval");
   }
   function pintaSlider(i){
@@ -429,7 +441,7 @@ td.top1{color:var(--basil);font-weight:700}
     var faltan=tocado.filter(function(t){ return !t; }).length;
     if(faltan&&!avisado){
       avisado=true;
-      for(var i=0;i<6;i++) pintaSlider(i);
+      for(var i=0;i<PREG.length;i++) pintaSlider(i);
       $("eEval").textContent=(faltan===1?"Te falta 1 barra por mover":"Te faltan "+faltan+" barras por mover")+". Si de verdad van en 0, toca Guardar otra vez.";
       var p=tocado.indexOf(false); $("q"+p).scrollIntoView({behavior:"smooth",block:"center"});
       return;
@@ -451,11 +463,12 @@ td.top1{color:var(--basil);font-weight:700}
     var eq=S.pend[0], e=S.evals[eq];
     if(!e){ S.pend.shift(); return flush(); }
     enviando=true;
-    api("draft",{matricula:S.m,equipo:eq,d:e.d}).then(function(){
+    api("draft",{matricula:S.m,equipo:eq,d:e.d,ronda:S.ronda}).then(function(){
       if(S&&S.evals[eq]===e){ S.pend.splice(S.pend.indexOf(eq),1); guardaLocal(); }
       enviando=false; flush();
     }).catch(function(err){
       enviando=false;
+      if(/^RONDA/.test(err.message)) return reinicio();
       if(/Ya enviaste/.test(err.message)){ S.enviado=true; guardaLocal(); pintaListo(); return; }
       setTimeout(flush,6000);
     });
@@ -475,8 +488,8 @@ td.top1{color:var(--basil);font-weight:700}
     var ev={}; otros().forEach(function(x){ ev[x]=S.evals[x].d; });
     var intentos=0;
     function manda(){
-      return api("submit",{matricula:S.m,evals:ev}).catch(function(e){
-        if(++intentos>=4||/matrícula|Faltan|rango/.test(e.message)) throw e;
+      return api("submit",{matricula:S.m,evals:ev,ronda:S.ronda}).catch(function(e){
+        if(++intentos>=4||/matrícula|Faltan|rango|RONDA/.test(e.message)) throw e;
         b.textContent="Mucha gente enviando… reintento "+intentos;
         return new Promise(function(r){ setTimeout(r,2500+Math.random()*2500); }).then(manda);
       });
@@ -484,6 +497,7 @@ td.top1{color:var(--basil);font-weight:700}
     manda().then(function(){
       S.enviado=true; S.pend=[]; guardaLocal(); pintaListo();
     }).catch(function(e){
+      if(/^RONDA/.test(e.message)) return reinicio();
       $("eEnviar").textContent="No se pudo enviar ("+e.message+"). Revisa tu internet e intenta otra vez.";
       b.disabled=false; pintaMenuBoton();
     });
@@ -508,16 +522,26 @@ td.top1{color:var(--basil);font-weight:700}
     cargaProfe().then(function(){ $("fProfe").hidden=true; $("tablero").hidden=false; clearInterval(tRef); tRef=setInterval(cargaProfe,20000); })
       .catch(function(e){ $("eProfe").textContent=e.message; });
   });
+  var armR=false, tR=null;
+  $("bReset").addEventListener("click",function(){
+    var b=$("bReset");
+    if(!armR){ armR=true; b.classList.add("arm"); b.textContent="¿Seguro? Se borra todo. Toca otra vez";
+      clearTimeout(tR); tR=setTimeout(function(){ armR=false; b.classList.remove("arm"); b.textContent="Borrar todas las respuestas"; },5000); return; }
+    armR=false; clearTimeout(tR); b.disabled=true; b.textContent="Borrando…";
+    api("reset",{pass:pass}).then(function(){ return cargaProfe(); }).then(function(){ toast("Listo: respuestas en cero"); })
+      .catch(function(e){ toast("No se pudo: "+e.message); })
+      .then(function(){ b.disabled=false; b.classList.remove("arm"); b.textContent="Borrar todas las respuestas"; });
+  });
   function cargaProfe(){
     return api("profe",{pass:pass}).then(function(o){
       var env=0,cur=0,no=0;
       o.alumnos.forEach(function(a){ if(a.estado==="enviado") env++; else if(a.estado==="en curso") cur++; else no++; });
       $("kEnv").textContent=env; $("kCur").textContent=cur; $("kNo").textContent=no;
       $("pHead").innerHTML="<tr><th>Equipo</th><th>n</th>"+o.dims.map(function(d,i){ return '<th title="'+esc(d)+'">'+(i+1)+'</th>'; }).join("")+"<th>Prom.</th></tr>";
-      var mejor=-1; o.equipos.forEach(function(e){ if(e.prom){ var p=e.prom.reduce(function(s,x){return s+x;},0)/6; if(p>mejor) mejor=p; } });
+      var mejor=-1; o.equipos.forEach(function(e){ if(e.prom){ var p=e.prom.reduce(function(s,x){return s+x;},0)/e.prom.length; if(p>mejor) mejor=p; } });
       $("pBody").innerHTML=o.equipos.map(function(e){
-        if(!e.prom) return '<tr><td>'+esc(e.nombre)+'</td><td>0</td><td colspan="7" style="text-align:left;color:var(--muted)">'+(e.borradores?e.borradores+" en borrador":"sin evaluaciones")+'</td></tr>';
-        var p=Math.round(e.prom.reduce(function(s,x){return s+x;},0)/6*10)/10;
+        if(!e.prom) return '<tr><td>'+esc(e.nombre)+'</td><td>0</td><td colspan="'+(o.dims.length+1)+'" style="text-align:left;color:var(--muted)">'+(e.borradores?e.borradores+" en borrador":"sin evaluaciones")+'</td></tr>';
+        var p=Math.round(e.prom.reduce(function(s,x){return s+x;},0)/e.prom.length*10)/10;
         return '<tr><td>'+esc(e.nombre)+'</td><td>'+e.n+'</td>'+e.prom.map(function(v){ return '<td>'+Math.round(v)+'</td>'; }).join("")+
           '<td class="p'+(p===mejor?' top1':'')+'" style="color:'+color(p)+'">'+p+'</td></tr>';
       }).join("");
@@ -557,7 +581,7 @@ td.top1{color:var(--basil);font-weight:700}
     if(loc&&loc.m){
       S=loc; if(!S.pend) S.pend=[];
       if(S.enviado) pintaListo(); else pintaMenu();
-      api("login",{matricula:S.m}).then(function(o){ if(S&&S.m===o.matricula&&!actual) aplicaServidor(o); }).catch(function(){});
+      api("login",{matricula:S.m}).then(function(o){ if(S&&S.m===o.matricula&&(!actual||S.ronda!==o.ronda)) aplicaServidor(o); }).catch(function(){});
     }else ver("vLogin");
   }
   if(location.hash==="#profe"){ ver("vProfe"); } else arranca();

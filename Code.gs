@@ -12,12 +12,16 @@
  */
 
 const EQUIPOS = ["Fashion B", "Bags Pro", "Prime Bags", "Superbag", "Mon Sac a Dos", "Saga Sacs", "Urban Sacs"];
-const DIMS = ["Conocimientos", "Decisiones", "Narrativa", "Visuales", "Organización", "Nos representa"];
+const DIMS = ["Conocimientos", "Decisiones", "Narrativa", "Visuales", "Organización", "Respuestas", "Nos representa"];
 const ADMIN_INICIAL = "CAMBIAR";
 /* [matrícula, nombre, equipo] — solo en el editor de Apps Script */
 const ALUMNOS = [];
 
 const COLS = ["matricula", "nombre", "equipo_propio", "equipo_evaluado"].concat(DIMS, ["promedio", "estado", "actualizado"]);
+const ND = DIMS.length;          // dimensiones: columnas 4 .. 4+ND-1 (base 0)
+const I_EST = 4 + ND + 1;        // estado
+const I_ACT = 4 + ND + 2;        // actualizado
+function col(i) { return String.fromCharCode(65 + i); } // 0 → A
 
 function setup() {
   const p = props();
@@ -36,28 +40,27 @@ function setup() {
   }
 
   const e = ss.getSheetByName("Evaluaciones") || ss.insertSheet("Evaluaciones", 0);
-  if (e.getLastRow() < 1) {
-    e.getRange(1, 1, 1, COLS.length).setValues([COLS]).setFontWeight("bold");
-    e.setFrozenRows(1);
-    e.getRange("A:A").setNumberFormat("@");
-  }
+  e.getRange(1, 1, 1, e.getMaxColumns()).clearContent();
+  e.getRange(1, 1, 1, COLS.length).setValues([COLS]).setFontWeight("bold");
+  e.setFrozenRows(1);
+  e.getRange("A:A").setNumberFormat("@");
 
   const r = ss.getSheetByName("Resumen") || ss.insertSheet("Resumen", 0);
   r.clear();
   const head = ["Equipo"].concat(DIMS, ["Promedio", "Evaluaciones enviadas"]);
   r.getRange(1, 1, 1, head.length).setValues([head]).setFontWeight("bold");
-  const letras = "EFGHIJK"; // columnas de Evaluaciones: 6 dimensiones + promedio
+  const EST = col(I_EST);
   EQUIPOS.forEach(function (eq, i) {
     const row = i + 2;
     r.getRange(row, 1).setValue(eq);
-    for (let c = 0; c < 7; c++) {
-      const L = letras[c];
-      r.getRange(row, c + 2).setFormula('=IFERROR(ROUND(AVERAGEIFS(Evaluaciones!$' + L + ':$' + L + ',Evaluaciones!$D:$D,$A' + row + ',Evaluaciones!$L:$L,"enviado"),1),"")');
+    for (let c = 0; c <= ND; c++) { // dimensiones + promedio
+      const L = col(4 + c);
+      r.getRange(row, c + 2).setFormula('=IFERROR(ROUND(AVERAGEIFS(Evaluaciones!$' + L + ':$' + L + ',Evaluaciones!$D:$D,$A' + row + ',Evaluaciones!$' + EST + ':$' + EST + ',"enviado"),1),"")');
     }
-    r.getRange(row, 9).setFormula('=COUNTIFS(Evaluaciones!$D:$D,$A' + row + ',Evaluaciones!$L:$L,"enviado")');
+    r.getRange(row, ND + 3).setFormula('=COUNTIFS(Evaluaciones!$D:$D,$A' + row + ',Evaluaciones!$' + EST + ':$' + EST + ',"enviado")');
   });
   r.setFrozenRows(1);
-  r.getRange(2, 8, EQUIPOS.length, 1).setFontWeight("bold");
+  r.getRange(2, ND + 2, EQUIPOS.length, 1).setFontWeight("bold");
 
   ["Sheet1", "Hoja 1", "Hoja1"].forEach(function (n) {
     const s = ss.getSheetByName(n);
@@ -82,6 +85,7 @@ function doPost(e) {
       case "draft": out = guardar(d, false); break;
       case "submit": out = guardar(d, true); break;
       case "profe": admin(d); out = tablero(); break;
+      case "reset": admin(d); reiniciar(); out = tablero(); break;
       default: throw new Error("Acción desconocida.");
     }
   } catch (err) {
@@ -96,6 +100,21 @@ function admin(d) {
   if (String(d.pass || "") !== props().getProperty("ADMIN_PASS")) {
     Utilities.sleep(1500);
     throw new Error("Contraseña incorrecta.");
+  }
+}
+
+function ronda() { return props().getProperty("RONDA") || "1"; }
+
+/* Borra todas las respuestas y cambia la "ronda" para que los teléfonos olviden lo que tenían guardado. */
+function reiniciar() {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sh = libro().getSheetByName("Evaluaciones");
+    if (sh.getLastRow() > 1) sh.deleteRows(2, sh.getLastRow() - 1);
+    props().setProperty("RONDA", String(Date.now()));
+  } finally {
+    lock.releaseLock();
   }
 }
 
@@ -137,9 +156,9 @@ function deAlumno(m, rows) {
   let enviado = false;
   rows.forEach(function (r) {
     if (norm(r[0]) !== m) return;
-    const t = r[12] instanceof Date ? r[12].getTime() : (Date.parse(r[12]) || 0);
-    ev[r[3]] = { d: r.slice(4, 10).map(Number), t: t };
-    if (r[11] === "enviado") enviado = true;
+    const t = r[I_ACT] instanceof Date ? r[I_ACT].getTime() : (Date.parse(r[I_ACT]) || 0);
+    ev[r[3]] = { d: r.slice(4, 4 + ND).map(Number), t: t };
+    if (r[I_EST] === "enviado") enviado = true;
   });
   return { evals: ev, enviado: enviado };
 }
@@ -147,7 +166,7 @@ function deAlumno(m, rows) {
 function login(d) {
   const a = alumno(d.matricula);
   const yo = deAlumno(a.m, filas());
-  return { ok: true, matricula: a.m, nombre: pila(a.n), equipo: a.e, evals: yo.evals, enviado: yo.enviado };
+  return { ok: true, matricula: a.m, nombre: pila(a.n), equipo: a.e, evals: yo.evals, enviado: yo.enviado, ronda: ronda() };
 }
 
 function dims(x) {
@@ -162,6 +181,7 @@ function dims(x) {
 /* draft: un equipo, estado "borrador".  submit: todos los equipos (menos el propio), estado "enviado". */
 function guardar(d, final) {
   const a = alumno(d.matricula);
+  if (d.ronda && String(d.ronda) !== ronda()) throw new Error("RONDA: El profe reinició la evaluación. Entra de nuevo.");
   const otros = EQUIPOS.filter(function (x) { return x !== a.e; });
   const evals = {};
   if (final) {
@@ -202,22 +222,23 @@ function tablero() {
   const rows = filas();
   const al = alumnos();
   const eq = {};
-  EQUIPOS.forEach(function (x) { eq[x] = { n: 0, s: [0, 0, 0, 0, 0, 0], b: 0 }; });
+  EQUIPOS.forEach(function (x) { eq[x] = { n: 0, s: DIMS.map(function () { return 0; }), b: 0 }; });
   const est = {};
   rows.forEach(function (r) {
     const m = norm(r[0]);
     est[m] = est[m] || { k: 0, env: false };
     est[m].k++;
-    if (r[11] === "enviado") est[m].env = true;
+    if (r[I_EST] === "enviado") est[m].env = true;
     const t = eq[r[3]];
     if (!t) return;
-    if (r[11] === "enviado") {
+    if (r[I_EST] === "enviado") {
       t.n++;
-      for (let i = 0; i < 6; i++) t.s[i] += Number(r[4 + i]) || 0;
+      for (let i = 0; i < ND; i++) t.s[i] += Number(r[4 + i]) || 0;
     } else t.b++;
   });
   return {
     ok: true,
+    ronda: ronda(),
     dims: DIMS,
     equipos: EQUIPOS.map(function (x) {
       const t = eq[x];
@@ -225,7 +246,7 @@ function tablero() {
     }),
     alumnos: al.map(function (x) {
       const s = est[x.m] || { k: 0, env: false };
-      return { nombre: x.n, equipo: x.e, estado: s.env ? "enviado" : (s.k ? "en curso" : "sin empezar"), k: s.env ? 6 : s.k };
+      return { nombre: x.n, equipo: x.e, estado: s.env ? "enviado" : (s.k ? "en curso" : "sin empezar"), k: s.env ? EQUIPOS.length - 1 : s.k };
     })
   };
 }
